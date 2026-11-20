@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#667eea">
+  <title>连连看 Lianliankan</title>
+</head>
+<body>
+  <p id="status">正在加载连连看…</p>
+  <script>
+    // Load the exact index.html from the requested source repository revision.
+    fetch('https://raw.githubusercontent.com/mountnen-alt/lianliankan/6ab51339d2b3794d8098f8d339f482bf830bac04/index.html')
+      .then(response => {
+        if (!response.ok) throw new Error(`加载失败 (${response.status})`);
+        return response.text();
+      })
+      .then(html => {
+        document.open();
+        document.write(html);
+        document.close();
+      })
+      .catch(error => {
+        document.getElementById('status').textContent = `连连看加载失败：${error.message}`;
+      });
+  </script>
+</body>
+</html>
