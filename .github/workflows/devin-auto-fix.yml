@@ -1,0 +1,88 @@
+name: Devin auto-fix on tool-call failure
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  reproduce:
+    runs-on: ubuntu-latest
+    outputs:
+      signature: ${{ steps.signature.outputs.signature }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run reproduction tests
+        id: tests
+        continue-on-error: true
+        run: |
+          python -m pytest tests/test_tool_wrapper.py -v 2>&1 | tee failure-log.txt
+          echo "exit_code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload failure log
+        if: steps.tests.outputs.exit_code != '0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: failure-log
+          path: failure-log.txt
+          retention-days: 30
+
+      - name: Compute failure signature
+        id: signature
+        if: steps.tests.outputs.exit_code != '0'
+        run: |
+          # Strip timestamps, paths and line jitter before hashing, so the
+          # same bug maps to the same signature across runs.
+          sig=$(sed -E 's/[0-9]{2}:[0-9]{2}:[0-9]{2}//g; s#/home/runner/work/[^ ]*##g' failure-log.txt | sha256sum | cut -c1-16)
+          echo "signature=$sig" >> "$GITHUB_OUTPUT"
+          echo "signature=$sig" >> "$GITHUB_STEP_SUMMARY"
+
+  open-devin-session:
+    needs: reproduce
+    if: needs.reproduce.outputs.signature != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create Devin session
+        id: devin
+        env:
+          DEVIN_API_KEY: ${{ secrets.DEVIN_API_KEY }}
+          SIGNATURE: ${{ needs.reproduce.outputs.signature }}
+          SHA: ${{ github.sha }}
+        run: |
+          if [ -z "$DEVIN_API_KEY" ]; then
+            echo "missing_secret=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          prompt="仓库：cbkzc28tp2-png/linalianan，分支 main，提交 $SHA。失败测试：tests/test_tool_wrapper.py，失败签名：$SIGNATURE。任务：只修 agent_tool_wrapper.py 里的重试逻辑。重试时不要把幻觉参数再喂回去，不要往 params 里写 hallucinated_key。每次重试用清洗过的原始 params，retry_count 只做计数，不进 params。保留原有行为：缺 query 报错、force_fail 最终报 ToolCallError。加回归测试，证明重试 5 次后 params 没有被污染。不要做：不要改 index.html，不要改 workflow，不要加新依赖，不要自动合并。验收：pytest tests/test_tool_wrapper.py 全过，python agent_tool_wrapper.py 能跑完。失败日志见本 run 的 failure-log artifact。"
+          resp=$(curl -s -X POST https://api.devin.ai/v1/sessions \
+            -H "Authorization: Bearer $DEVIN_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -nc --arg p "$prompt" --arg k "$SIGNATURE" '{prompt: $p, idempotency_key: $k, max_acu_limit: 10}')")
+          echo "$resp" | tee devin-session.json
+          echo "session_url=$(echo "$resp" | jq -r '.url // empty')" >> "$GITHUB_OUTPUT"
+          echo "session_id=$(echo "$resp" | jq -r '.session_id // empty')" >> "$GITHUB_OUTPUT"
+
+      - name: Open tracking issue when no secret or no session
+        if: steps.devin.outputs.missing_secret == 'true' || steps.devin.outputs.session_url == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SIGNATURE: ${{ needs.reproduce.outputs.signature }}
+          SESSION_URL: ${{ steps.devin.outputs.session_url }}
+        run: |
+          gh issue create \
+            --title "Devin fix needed: tool-call retry failure ($SIGNATURE)" \
+            --label devin-fix \
+            --body "测试 tests/test_tool_wrapper.py 在 ${{ github.sha }} 上失败，失败签名 $SIGNATURE。Devin session：${SESSION_URL:-未创建，缺少 DEVIN_API_KEY secret，请补 secret 后重跑 workflow。} 失败日志见本 run 的 failure-log artifact。复现脚本见 agent_tool_wrapper.py 和公开 Gist。"
