@@ -1,28 +1,647 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#667eea">
-  <title>连连看 Lianliankan</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#667eea">
+<title>连连看 Lianliankan</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overflow-x: hidden; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 10px;
+    color: #fff;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .header {
+    width: 100%;
+    max-width: 760px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    margin-bottom: 10px;
+  }
+  .title { font-size: 22px; font-weight: 700; letter-spacing: 1px; }
+  .stats { display: flex; gap: 14px; font-size: 14px; opacity: 0.95; }
+  .stats span { font-weight: 600; }
+  .controls { display: flex; gap: 6px; flex-wrap: wrap; }
+  .btn, select.btn {
+    background: rgba(255, 255, 255, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: #fff;
+    padding: 7px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    font-family: inherit;
+    transition: background 0.15s, transform 0.05s;
+    touch-action: manipulation;
+  }
+  .btn:hover { background: rgba(255, 255, 255, 0.28); }
+  .btn:active { transform: scale(0.96); }
+  select.btn { appearance: none; padding-right: 24px; background-image: linear-gradient(45deg, transparent 50%, #fff 50%), linear-gradient(135deg, #fff 50%, transparent 50%); background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; }
+  select.btn option { color: #333; background: #fff; }
+
+  #board-wrap {
+    position: relative;
+    padding: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+    margin: 6px 0;
+  }
+  #board {
+    display: grid;
+    gap: 0;
+    position: relative;
+    z-index: 1;
+  }
+  .tile {
+    background: linear-gradient(145deg, #ffffff, #d9e2ec);
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: transform 0.08s, box-shadow 0.12s, opacity 0.2s;
+    box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.15);
+    color: #222;
+    line-height: 1;
+    touch-action: manipulation;
+  }
+  .tile.empty {
+    background: transparent;
+    border: 1px dashed rgba(255, 255, 255, 0.05);
+    box-shadow: none;
+    cursor: default;
+    pointer-events: none;
+    color: transparent;
+  }
+  .tile.selected {
+    background: linear-gradient(145deg, #ffe082, #ffb300);
+    transform: scale(0.93);
+    box-shadow: 0 0 0 3px #fff59d, 0 0 14px #ffeb3b;
+    border-color: #ff8f00;
+  }
+  .tile.hint {
+    animation: pulse 0.6s ease-in-out infinite alternate;
+    background: linear-gradient(145deg, #b3e5fc, #29b6f6);
+    border-color: #0277bd;
+  }
+  .tile.matched { animation: pop 0.28s ease-in forwards; pointer-events: none; }
+  @keyframes pulse { from { transform: scale(1); } to { transform: scale(1.06); box-shadow: 0 0 0 3px #4fc3f7, 0 0 14px #03a9f4; } }
+  @keyframes pop {
+    0%   { transform: scale(1);   opacity: 1; }
+    60%  { transform: scale(1.15); opacity: 0.7; }
+    100% { transform: scale(0);   opacity: 0; }
+  }
+
+  #path-canvas {
+    position: absolute;
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  /* Modal */
+  .overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+  }
+  .overlay.active { display: flex; }
+  .modal {
+    background: #fff;
+    color: #333;
+    padding: 28px 32px;
+    border-radius: 14px;
+    text-align: center;
+    min-width: 260px;
+    max-width: 90vw;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+    animation: modalIn 0.25s ease;
+  }
+  @keyframes modalIn { from { transform: scale(0.85); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  .modal h2 { margin-bottom: 10px; font-size: 24px; }
+  .modal p { margin-bottom: 18px; color: #666; }
+  .modal .btn { background: #667eea; color: #fff; border: none; padding: 10px 22px; border-radius: 8px; font-size: 15px; }
+  .modal .btn:hover { background: #5568d3; }
+
+  .toast {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.75);
+    color: #fff;
+    padding: 10px 18px;
+    border-radius: 20px;
+    font-size: 14px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s;
+    z-index: 200;
+  }
+  .toast.show { opacity: 1; }
+
+  @media (max-width: 480px) {
+    .title { font-size: 18px; }
+    .stats { font-size: 13px; gap: 10px; }
+    .btn, select.btn { padding: 6px 10px; font-size: 13px; }
+  }
+</style>
 </head>
 <body>
-  <p id="status">正在加载连连看…</p>
-  <script>
-    // Load the exact index.html from the requested source repository revision.
-    fetch('https://raw.githubusercontent.com/mountnen-alt/lianliankan/6ab51339d2b3794d8098f8d339f482bf830bac04/index.html')
-      .then(response => {
-        if (!response.ok) throw new Error(`加载失败 (${response.status})`);
-        return response.text();
-      })
-      .then(html => {
-        document.open();
-        document.write(html);
-        document.close();
-      })
-      .catch(error => {
-        document.getElementById('status').textContent = `连连看加载失败：${error.message}`;
-      });
-  </script>
+  <div class="header">
+    <div class="title">🎮 连连看</div>
+    <div class="stats">
+      <div>⏱ <span id="time">00:00</span></div>
+      <div>🎯 剩余 <span id="pairs">0</span></div>
+    </div>
+    <div class="controls">
+      <select id="difficulty" class="btn" title="难度">
+        <option value="easy">简单 6×8</option>
+        <option value="normal" selected>普通 8×10</option>
+        <option value="hard">困难 10×12</option>
+      </select>
+      <button class="btn" id="hint-btn" title="找一对可消除的牌">💡 提示</button>
+      <button class="btn" id="shuffle-btn" title="重新打乱剩余牌">🔀 重排</button>
+      <button class="btn" id="restart-btn" title="开始新游戏">🔄 重开</button>
+    </div>
+  </div>
+
+  <div id="board-wrap">
+    <div id="board"></div>
+    <canvas id="path-canvas"></canvas>
+  </div>
+
+  <div class="overlay" id="overlay">
+    <div class="modal">
+      <h2 id="modal-title">🎉 恭喜!</h2>
+      <p id="modal-msg"></p>
+      <button class="btn" id="modal-btn">再来一局</button>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script>
+(() => {
+  'use strict';
+
+  const EMOJIS = [
+    '🐶','🐱','🐭','🐹','🐰','🦊','🐻','🐼','🐨','🐯','🦁','🐮',
+    '🐷','🐸','🐵','🐔','🐧','🐦','🦆','🦅','🦉','🐺','🐴','🦄',
+    '🐝','🐛','🦋','🐌','🐞','🐢','🐙','🦀','🐡','🐠','🐬','🐳',
+    '🍎','🍊','🍋','🍌','🍉','🍇','🍓','🍒','🍑','🥭','🍍','🥝',
+    '🍅','🥕','🌽','🌶️','🥦','🍄','🥜','🌰','⭐','🌙','☀️','⚡'
+  ];
+
+  const DIFFICULTY = {
+    easy:   { rows: 6,  cols: 8  },
+    normal: { rows: 8,  cols: 10 },
+    hard:   { rows: 10, cols: 12 }
+  };
+
+  // grid extends with border: indices 0 and rows+1, 0 and cols+1 are border (null)
+  let grid, rows, cols, cellSize;
+  let pairsLeft = 0;
+  let selected = null;
+  let startTime = 0;
+  let timerId = null;
+  let busy = false;
+
+  const dom = {};
+
+  function $(id) { return document.getElementById(id); }
+
+  function init() {
+    dom.board       = $('board');
+    dom.canvas      = $('path-canvas');
+    dom.ctx         = dom.canvas.getContext('2d');
+    dom.time        = $('time');
+    dom.pairs       = $('pairs');
+    dom.difficulty  = $('difficulty');
+    dom.overlay     = $('overlay');
+    dom.modalTitle  = $('modal-title');
+    dom.modalMsg    = $('modal-msg');
+    dom.toast       = $('toast');
+
+    $('hint-btn').addEventListener('click', showHint);
+    $('shuffle-btn').addEventListener('click', () => { shuffleBoard(true); });
+    $('restart-btn').addEventListener('click', newGame);
+    $('modal-btn').addEventListener('click', () => {
+      dom.overlay.classList.remove('active');
+      newGame();
+    });
+    dom.difficulty.addEventListener('change', newGame);
+
+    let resizeRaf = null;
+    window.addEventListener('resize', () => {
+      if (resizeRaf) cancelAnimationFrame(resizeRaf);
+      resizeRaf = requestAnimationFrame(renderBoard);
+    });
+    window.addEventListener('orientationchange', () => setTimeout(renderBoard, 200));
+
+    newGame();
+  }
+
+  function shuffleArray(a) {
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+  }
+
+  function newGame() {
+    const diff = DIFFICULTY[dom.difficulty.value] || DIFFICULTY.normal;
+    rows = diff.rows;
+    cols = diff.cols;
+    const total = rows * cols;
+    const pairs = total / 2;
+
+    const values = [];
+    for (let i = 0; i < pairs; i++) {
+      const v = EMOJIS[i % EMOJIS.length];
+      values.push(v, v);
+    }
+
+    let attempts = 0;
+    do {
+      shuffleArray(values);
+      buildGrid(values);
+      attempts++;
+    } while (!hasAnyMatch() && attempts < 30);
+
+    pairsLeft = pairs;
+    selected = null;
+    busy = false;
+    dom.pairs.textContent = pairsLeft;
+
+    if (timerId) clearInterval(timerId);
+    startTime = Date.now();
+    updateTime();
+    timerId = setInterval(updateTime, 500);
+
+    renderBoard();
+  }
+
+  function buildGrid(values) {
+    grid = [];
+    for (let r = 0; r <= rows + 1; r++) {
+      grid[r] = [];
+      for (let c = 0; c <= cols + 1; c++) {
+        if (r === 0 || r === rows + 1 || c === 0 || c === cols + 1) {
+          grid[r][c] = null;
+        } else {
+          grid[r][c] = values[(r - 1) * cols + (c - 1)];
+        }
+      }
+    }
+  }
+
+  function updateTime() {
+    const t = Math.floor((Date.now() - startTime) / 1000);
+    const m = String(Math.floor(t / 60)).padStart(2, '0');
+    const s = String(t % 60).padStart(2, '0');
+    dom.time.textContent = `${m}:${s}`;
+  }
+
+  function renderBoard() {
+    // Compute cell size based on viewport
+    const headerH = document.querySelector('.header').offsetHeight || 60;
+    const maxW = Math.min(window.innerWidth - 32, 760);
+    const maxH = Math.max(window.innerHeight - headerH - 60, 200);
+    cellSize = Math.floor(Math.min(maxW / cols, maxH / rows));
+    cellSize = Math.max(28, Math.min(cellSize, 64));
+
+    const fontSize = Math.floor(cellSize * 0.55);
+
+    dom.board.style.gridTemplateColumns = `repeat(${cols}, ${cellSize}px)`;
+    dom.board.style.gridTemplateRows = `repeat(${rows}, ${cellSize}px)`;
+
+    dom.board.innerHTML = '';
+    for (let r = 1; r <= rows; r++) {
+      for (let c = 1; c <= cols; c++) {
+        const tile = document.createElement('div');
+        tile.className = 'tile';
+        tile.style.width = cellSize + 'px';
+        tile.style.height = cellSize + 'px';
+        tile.style.fontSize = fontSize + 'px';
+        tile.dataset.r = r;
+        tile.dataset.c = c;
+        if (grid[r][c] === null) {
+          tile.classList.add('empty');
+        } else {
+          tile.textContent = grid[r][c];
+        }
+        tile.addEventListener('click', onTileClick);
+        dom.board.appendChild(tile);
+      }
+    }
+
+    if (selected) {
+      const el = getCellEl(selected.r, selected.c);
+      if (el) el.classList.add('selected');
+    }
+
+    sizeCanvas();
+  }
+
+  function sizeCanvas() {
+    // Canvas covers extended grid: (cols+2) x (rows+2) cells
+    const w = cellSize * (cols + 2);
+    const h = cellSize * (rows + 2);
+    dom.canvas.style.width = w + 'px';
+    dom.canvas.style.height = h + 'px';
+    dom.canvas.style.left = (-cellSize + 6) + 'px';  // 6px = #board-wrap padding
+    dom.canvas.style.top = (-cellSize + 6) + 'px';
+
+    const dpr = window.devicePixelRatio || 1;
+    dom.canvas.width = Math.floor(w * dpr);
+    dom.canvas.height = Math.floor(h * dpr);
+    dom.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  function getCellEl(r, c) {
+    return dom.board.querySelector(`.tile[data-r="${r}"][data-c="${c}"]`);
+  }
+
+  function onTileClick(e) {
+    if (busy) return;
+    const el = e.currentTarget;
+    const r = parseInt(el.dataset.r, 10);
+    const c = parseInt(el.dataset.c, 10);
+    if (grid[r][c] === null) return;
+
+    if (!selected) {
+      selected = { r, c };
+      el.classList.add('selected');
+      return;
+    }
+
+    // Click same tile -> deselect
+    if (selected.r === r && selected.c === c) {
+      el.classList.remove('selected');
+      selected = null;
+      return;
+    }
+
+    const prevEl = getCellEl(selected.r, selected.c);
+
+    // Different value -> switch selection
+    if (grid[selected.r][selected.c] !== grid[r][c]) {
+      if (prevEl) prevEl.classList.remove('selected');
+      selected = { r, c };
+      el.classList.add('selected');
+      return;
+    }
+
+    // Same value -> try to connect
+    const path = findPath(selected.r, selected.c, r, c);
+    if (!path) {
+      // Cannot connect — switch selection
+      if (prevEl) prevEl.classList.remove('selected');
+      selected = { r, c };
+      el.classList.add('selected');
+      return;
+    }
+
+    // Match!
+    busy = true;
+    const a = { r: selected.r, c: selected.c, el: prevEl };
+    const b = { r, c, el };
+    selected = null;
+
+    drawPath(path);
+    a.el.classList.remove('selected');
+    a.el.classList.add('matched');
+    b.el.classList.add('matched');
+
+    grid[a.r][a.c] = null;
+    grid[b.r][b.c] = null;
+
+    setTimeout(() => {
+      a.el.classList.remove('matched');
+      b.el.classList.remove('matched');
+      a.el.classList.add('empty');
+      b.el.classList.add('empty');
+      a.el.textContent = '';
+      b.el.textContent = '';
+      clearPath();
+
+      pairsLeft--;
+      dom.pairs.textContent = pairsLeft;
+
+      if (pairsLeft === 0) {
+        clearInterval(timerId);
+        win();
+      } else if (!hasAnyMatch()) {
+        toast('没有可消除的对了，自动重排！');
+        setTimeout(() => shuffleBoard(false), 600);
+      }
+      busy = false;
+    }, 320);
+  }
+
+  // ===== Path finding =====
+  // grid uses extended coords with border at 0 and rows+1 / cols+1
+  function isClear(r1, c1, r2, c2) {
+    if (r1 === r2) {
+      const a = Math.min(c1, c2), b = Math.max(c1, c2);
+      for (let c = a + 1; c < b; c++) {
+        if (grid[r1][c] !== null) return false;
+      }
+      return true;
+    }
+    if (c1 === c2) {
+      const a = Math.min(r1, r2), b = Math.max(r1, r2);
+      for (let r = a + 1; r < b; r++) {
+        if (grid[r][c1] !== null) return false;
+      }
+      return true;
+    }
+    return false;
+  }
+
+  function findPath(r1, c1, r2, c2) {
+    // 0 turns
+    if (r1 === r2 || c1 === c2) {
+      if (isClear(r1, c1, r2, c2)) return [[r1, c1], [r2, c2]];
+    }
+    // 1 turn
+    const corners = [[r1, c2], [r2, c1]];
+    for (const [cr, cc] of corners) {
+      if (grid[cr][cc] === null &&
+          isClear(r1, c1, cr, cc) &&
+          isClear(cr, cc, r2, c2)) {
+        return [[r1, c1], [cr, cc], [r2, c2]];
+      }
+    }
+    // 2 turns - middle row
+    for (let r = 0; r <= rows + 1; r++) {
+      if (r === r1 || r === r2) continue;
+      if (grid[r][c1] !== null || grid[r][c2] !== null) continue;
+      if (isClear(r1, c1, r, c1) &&
+          isClear(r, c1, r, c2) &&
+          isClear(r, c2, r2, c2)) {
+        return [[r1, c1], [r, c1], [r, c2], [r2, c2]];
+      }
+    }
+    // 2 turns - middle col
+    for (let c = 0; c <= cols + 1; c++) {
+      if (c === c1 || c === c2) continue;
+      if (grid[r1][c] !== null || grid[r2][c] !== null) continue;
+      if (isClear(r1, c1, r1, c) &&
+          isClear(r1, c, r2, c) &&
+          isClear(r2, c, r2, c2)) {
+        return [[r1, c1], [r1, c], [r2, c], [r2, c2]];
+      }
+    }
+    return null;
+  }
+
+  function findAnyMatch() {
+    const positions = [];
+    const byValue = {};
+    for (let r = 1; r <= rows; r++) {
+      for (let c = 1; c <= cols; c++) {
+        const v = grid[r][c];
+        if (v !== null) {
+          (byValue[v] = byValue[v] || []).push([r, c]);
+        }
+      }
+    }
+    for (const v in byValue) {
+      const list = byValue[v];
+      for (let i = 0; i < list.length; i++) {
+        for (let j = i + 1; j < list.length; j++) {
+          if (findPath(list[i][0], list[i][1], list[j][0], list[j][1])) {
+            return [list[i], list[j]];
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  function hasAnyMatch() { return findAnyMatch() !== null; }
+
+  // ===== Path drawing =====
+  function drawPath(path) {
+    const ctx = dom.ctx;
+    const w = cellSize * (cols + 2);
+    const h = cellSize * (rows + 2);
+    ctx.clearRect(0, 0, w, h);
+    ctx.strokeStyle = '#fff176';
+    ctx.lineWidth = Math.max(3, cellSize * 0.10);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.shadowColor = 'rgba(255, 235, 59, 0.9)';
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    for (let i = 0; i < path.length; i++) {
+      const [r, c] = path[i];
+      // canvas covers extended grid [0..cols+1], so cell c center = (c + 0.5) * cellSize
+      const x = (c + 0.5) * cellSize;
+      const y = (r + 0.5) * cellSize;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+
+  function clearPath() {
+    dom.ctx.clearRect(0, 0, dom.canvas.width, dom.canvas.height);
+  }
+
+  // ===== Helpers =====
+  function showHint() {
+    if (busy) return;
+    const match = findAnyMatch();
+    if (!match) {
+      toast('没有可消除的牌，正在重排…');
+      shuffleBoard(false);
+      return;
+    }
+    const [a, b] = match;
+    const elA = getCellEl(a[0], a[1]);
+    const elB = getCellEl(b[0], b[1]);
+    if (!elA || !elB) return;
+    elA.classList.add('hint');
+    elB.classList.add('hint');
+    setTimeout(() => {
+      elA.classList.remove('hint');
+      elB.classList.remove('hint');
+    }, 1500);
+  }
+
+  function shuffleBoard(manual) {
+    if (busy) return;
+    let attempts = 0;
+    do {
+      const values = [];
+      const positions = [];
+      for (let r = 1; r <= rows; r++) {
+        for (let c = 1; c <= cols; c++) {
+          if (grid[r][c] !== null) {
+            values.push(grid[r][c]);
+            positions.push([r, c]);
+          }
+        }
+      }
+      if (values.length === 0) return;
+      shuffleArray(values);
+      for (let i = 0; i < positions.length; i++) {
+        grid[positions[i][0]][positions[i][1]] = values[i];
+      }
+      attempts++;
+    } while (!hasAnyMatch() && attempts < 50);
+
+    if (selected) {
+      const el = getCellEl(selected.r, selected.c);
+      if (el) el.classList.remove('selected');
+      selected = null;
+    }
+    renderBoard();
+    if (manual) toast('已重新打乱');
+  }
+
+  function win() {
+    dom.modalTitle.textContent = '🎉 恭喜通关!';
+    dom.modalMsg.textContent = `用时 ${dom.time.textContent}，全部消除！`;
+    dom.overlay.classList.add('active');
+  }
+
+  let toastTimer = null;
+  function toast(msg) {
+    dom.toast.textContent = msg;
+    dom.toast.classList.add('show');
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => dom.toast.classList.remove('show'), 1800);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+</script>
 </body>
 </html>
